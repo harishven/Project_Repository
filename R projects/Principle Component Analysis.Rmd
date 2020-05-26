@@ -1,0 +1,146 @@
+---
+title: "Principle Component Analysis"
+author: "Harish Venkatesh"
+date: "2/7/2020"
+output: pdf_document
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+#Check if the necessary packages are installed. If not, install and load them.
+
+```{r Load Packages, warning=FALSE, message=FALSE, results='hide' }
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(forecast, tidyverse, gplots, GGally, mosaic, scales, 
+               mapproj, mlbench, data.table, goeveg, gridExtra)
+search()
+```
+
+#Question 1:
+Compute the minimum, maximum, mean, median, and standard deviation for each of the numeric variables using data.table package. Which variable(s) has the largest variability? Explain your answer.
+
+```{r Load Data and Calculations}
+#Load Data
+utilities.df <- read.csv("Utilities.csv")
+utilities.dt <- setDT(utilities.df)
+
+#Compute the mean, median, maximum, minimum, standard deviation and coefficient of variation for each of the variables and put them in a data table with column names).
+utilities_table <- data.table(mean = sapply(utilities.dt[,2:9], mean),
+                              median = sapply(utilities.dt[,2:9],median),
+                              maximum = sapply(utilities.dt[,2:9],max),
+                              minimum = sapply(utilities.dt[,2:9],min),
+                              stv_dev = sapply(utilities.dt[,2:9],sd),
+                              coeff_var = sapply(utilities.dt[,2:9],cv))
+
+#convert it into data frame and lable rows with variables name.
+utilities_dataframe <- setDF(utilities_table, rownames <- c("Fixed_charge","RoR","Cost","Load_factor","Demand_growth","Sales","Nuclear","Fuel_Cost"))
+utilities_dataframe
+```
+
+```{r Which variable has the largest variability?}
+#Find out which variable has the highest standard deviation.
+utilities_dataframe[which.max(utilities_table$stv_dev),]
+
+#Find out which variable has the highest coefficient of variation.
+utilities_dataframe[which.max(utilities_table$coeff_var),]
+```
+
+###Explanation: 
+The standard measure for variability is standard devation. In that case, Sales has the highest standard deviation and therefore, the largest variability here. Intuitively, we should expect that would be the case because Sales are represented in higher numbers than the rest of the data (4 digits vs 1-2 digits). 
+
+Therefore, to have a more accurate sense of variability within the data set, we should use the coefficient of variation. This measures the variability from the means of each variable. Based on this, Nuclear has the highest variability. This makes sense, as we can see that approximately, half of our companies do not have nuclear power (represented by 0 in the data).
+
+#Question 2:
+Create boxplots for each of the numeric variables. Are there any extreme values for any of the variables? Which ones? Explain your answer.
+
+```{r Boxplots}
+#Create boxplots using ggplot. Assign each box plot to a vector and put them on a grid.
+a <- ggplot(utilities.dt) +
+  geom_boxplot(aes(y = Fixed_charge),
+               fill = "steelblue1", outlier.color = "firebrick") 
+b <- ggplot(utilities.dt) +
+  geom_boxplot(aes(y = RoR),
+               fill = "steelblue1", outlier.color = "firebrick")
+c <- ggplot(utilities.dt) +
+  geom_boxplot(aes(y = Cost),
+               fill = "steelblue1", outlier.color = "firebrick")
+d <- ggplot(utilities.dt) +
+  geom_boxplot(aes(y = Load_factor),
+               fill = "steelblue1", outlier.color = "firebrick")
+e <- ggplot(utilities.dt) +
+  geom_boxplot(aes(y = Demand_growth),
+               fill = "steelblue1", outlier.color = "firebrick")
+f <- ggplot(utilities.dt) +
+  geom_boxplot(aes(y = Sales),
+               fill = "steelblue1", outlier.color = "firebrick")
+g <- ggplot(utilities.dt) +
+  geom_boxplot(aes(y = Nuclear),
+               fill = "steelblue1", outlier.color = "firebrick")
+h <- ggplot(utilities.dt) +
+  geom_boxplot(aes(y = Fuel_Cost),
+               fill = "steelblue1", outlier.color = "firebrick")
+grid.arrange(a, b, c, d, e, f, g, h, ncol=4, top = "Boxplots and Outliers")
+```
+
+###Explanation:
+Extreme values or outliers are defined as values that fall outside of the whiskers. The left whisker (bottom) is calculated as Q1 - 1.5* IQR. IQR (Interquartile Range is Q3 (75th percentile) - Q1 (25th percentile)). The right whisker (upper) is calculated as Q3 + 1.5*IQR. 
+
+From observing the graphs, we notice that there are two variables that have outliers: Sales and Fixed charge. Sales having outliers should not come as a surprise as we see that it is the variable with the most variability based on standard deviation from earlier calculation. Nevada (17441) and Puget (15991) are the outliers in the upper region, which means that they have a lot more sales than the rest of the companies. But how do they accomplish that?
+
+Fixed_charge is defined as income/debt. In other words, how many dollars of income does a company generate from one dollar of debt. There are four outliers here: NY (1.49) and Central (1.43) in the upper region, and San Diego (0.76) and Nevada (0.75) in the lower region. This means that NY and Central are generating more revenue without having to borrow a lot of money. Nevada, on the other hand, has the most sales but is actually lowest in terms of debt/income. Their fixed charge is 0.75, which means for every dollar that they borrow, they only generate $0.75 of income. They are selling more but also borrow much more than other companies.
+
+
+#Question 3:
+Create a heatmap for the numeric variables. Discuss any interesting trend you see in this chart.
+
+```{r Heatmap, warning = FALSE, message = FALSE}
+#Use reshape package to melt and prepare input for the plot
+cor.mat <- round(cor(utilities.dt[,2:9]),2)
+melted.cormat <- melt(cor.mat)
+
+#Create a boxplot
+ggplot(melted.cormat, aes(x = Var1, y = Var2, fill = value)) +
+  scale_fill_gradient(low = "wheat", high = "orangered") +
+  geom_tile() +
+  geom_text(aes(x = Var1, y = Var2,label = value)) +
+  theme(axis.text.x = element_text(angle = 20, vjust = 0.5)) + 
+  ggtitle("Boxplot of the variables")
+```
+
+###Explanation:
+A few interesting things we notice from our observation of the graph:
+
+The highest positive correlation is between Fixed_charge and ROR, and the lowest negative correlation is between Sales and Fuel Cost. The reason is because when you have high ROR, it means you are making more revenue per invested capital. That will increase your income and also your Fixed_charge (which is income/debt). The relationship between Sales and Fuel Cost is also expected because if our cost is lower, we could take other actions such as lower pricings or better marketing to drive sales. 
+
+Sales has virtually no correlation with RoR or Cost. We would expect Sales to have positive correlation with RoR (more sales more revenue which leads to higher return) and negative correlation with Cost (lower cost more sales), but those are not the case here. If sales are measured in KWh use per year, which means more people are using our service and we are not seeing an increase in revenue, that could mean that we are pricing our products too low.
+
+
+#Question 4:
+Run principal component analysis using unscaled numeric variables in the
+dataset. How do you interpret the results from this model?
+
+```{r PCA on 8 variables}
+pcs <- prcomp(na.omit(utilities.df[,2:9]))
+summary(pcs)
+pcs$rot
+```
+
+###Explanation:
+The purpose of performing a principal components analysis is to reduce the number of numerical variables, making interpretation faster and easier. The product of this analysis is a smaller number of numerical variables that contain most of the information. As we can see from the table, PC1 contains 99.98% of the total variance. Theoretically, it's sufficient to only use PC1 instead of our original 8 variables to perform predictions about our data.
+
+However, upon closer look, we notice that Sales accounts for almost all of weights of PC1. This is because Sales is on a much bigger scale than the rest of the variables (it is measured in 4 digits compared to 1-2 digits of the other variables). Therefore, to ensure accuracy, we must normalize the numbers, that is to remove the scale effect by dividing each variable by standard deviation.
+
+#Question 5:
+Next, run principal component model after scaling the numeric variables. Did
+the results/interpretations change? How so? Explain your answers.
+
+```{r PCA using normalized variables}
+pcs_scaled <- prcomp(na.omit(utilities.df[,2:9]), scale. = T)
+summary(pcs_scaled)
+pcs_scaled$rot
+```
+
+###Explanation:
+As we can see from the new calculation, PC1 has gone from 99.98% to only 27.16% of the total variance. The percentage of the total variance of the rest of the principal components are also more evenly spread than before. We must now select PC1 to PC6 to capture 95% of the variance to make our prediction, thus only eliminating 2 variables compared to 7 like before. This, however, will result in more accurate predictions because we no longer have one variable too dominant compared to the others. 
