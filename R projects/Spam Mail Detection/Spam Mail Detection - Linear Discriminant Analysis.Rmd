@@ -1,0 +1,179 @@
+---
+title: "Spam Mail Detection (Linear discriminant analysis)"
+author: "Harish Venkatesh"
+date: "4/5/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+###Load packages and data:
+```{r}
+#Load packages
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(data.table, MASS, caret, ggplot2, dplyr, gains)
+
+#Load data and rename columns
+data <- fread("spambase.data")
+email.df <- data.frame(data)
+names(email.df) <- c("word_freq_make","word_freq_address","word_freq_all","word_freq_3d","word_freq_our","word_freq_over","word_freq_remove","word_freq_internet","word_freq_order","word_freq_mail","word_freq_receive","word_freq_will","word_freq_people","word_freq_report","word_freq_addresses","word_freq_free","word_freq_business","word_freq_email","word_freq_you","word_freq_credit","word_freq_your","word_freq_font","word_freq_000","word_freq_money","word_freq_hp","word_freq_hpl","word_freq_george","word_freq_650","word_freq_lab","word_freq_labs","word_freq_telnet","word_freq_857","word_freq_data","word_freq_415","word_freq_85","word_freq_technology","word_freq_1999","word_freq_parts","word_freq_pm","word_freq_direct","word_freq_cs","word_freq_meeting","word_freq_original","word_freq_project","word_freq_re","word_freq_edu","word_freq_table","word_freq_conference","char_freq_;","char_freq_(","char_freq_[","char_freq_!","char_freq_$","char_freq_#","capital_run_length_average","capital_run_length_longest","capital_run_length_total","Spam/Non-Spam")
+```
+
+#Question 1: Examine how each predictor differs between the spam and non-spam e-mails by comparing the spam-class average and non-spam-class average. Identify 10 predictors for which the difference between the spam-class average and non-spam class average is highest.
+
+```{r}
+##Normalize data
+norm_values  <- preProcess(email.df[,1:57], method =  c("center", "scale"))
+email.df <- predict(norm_values, email.df)
+
+
+#Calculate the spam-class average
+spam.class <- email.df %>% filter(email.df$`Spam/Non-Spam` == "1")
+avg.spam <- colMeans(spam.class[,1:57])
+
+
+#Calculate the non-spam-class average
+non.spam.class <- email.df %>% filter(email.df$`Spam/Non-Spam` == "0")
+avg.nonspam <- colMeans(non.spam.class[,1:57])
+
+
+#Calculate the difference
+avg.diff <- abs(avg.spam - avg.nonspam)
+
+
+#Top ten predictors
+avg.vec <- as.vector(avg.diff)
+names(avg.vec) <- names(avg.diff)
+avg.tt <- head(sort(avg.vec, decreasing = TRUE), 10)
+#Get the names of the top ten predictors and load it into a dataframe
+tt.names <- data.frame(names(avg.tt))
+
+
+
+#Print the top ten predictor values
+colnames(tt.names) <- c("Top ten predictors")
+tt.names
+```
+
+Explanation: 
+From our calculation, the top ten predictors are "word_freq_your", "word_freq_000", "word_freq_remove", "char_freq_$", "word_freq_you", "word_freq_free", "word_freq_business", "word_freq_hp", "capital_run_length_total", "word_freq_our".
+
+#Question 2: Perform a linear discriminant analysis using the training dataset. Include only 10 predictors identified in the question above in the model.
+
+```{r}
+set.seed(42)
+
+# Split the data into training (80%) and validation/test set (20%)
+training.index <- createDataPartition(email.df$`Spam/Non-Spam`, p = 0.8, list = FALSE)
+email.train.norm <- email.df[training.index, ]
+email.valid.norm <- email.df[-training.index, ]
+
+
+# Generate data from training set with only top ten predictors
+topten <- names(avg.tt)
+toptenpred <- c(topten,'Spam/Non-Spam')
+pred.train <- email.train.norm[, toptenpred]
+pred.valid <- email.valid.norm[, toptenpred]
+
+#Perform LDA
+lda <- lda( `Spam/Non-Spam`~. , data = pred.train)
+lda
+```
+
+#Question 3: What are the prior probabilities?
+
+```{r}
+pp <- lda$prior
+names(pp) <- c("Non-Spam","Spam")
+count <- nrow(pred.train)
+pp.df <-pp*count
+pp
+pp.df
+```
+Explanation:
+The prior probabilities are 0.6036 for Non-Spam and 0.3963 for Spam. In other words, in our training data set, there are 2222 classified as Non-Spam and 1459 classified as Spam.
+
+#Question 4: What are the coefficients of linear discriminants? Explain.
+
+```{r}
+lda$scaling
+```
+Explanation:
+The decision rule LD1 is calculated by the linear combination of predictor variables. If we multiply each predictor variable with the corresponding cofficients of linear discrimnants and sum them up, that will give us LD1. In other words, 0.4019 x capital_run_length_total + 0.3551 x capital_run_length_longest + ... + 0.2452 x char_freq_! = LD1.
+
+#Question 5: Generate linear discriminants using your analysis. How are they used in classifying spams and non-spams?
+
+```{r}
+pred2.valid <- predict(lda, pred.valid)
+names(pred2.valid)
+head(pred2.valid$class, 20)
+head(pred2.valid$post, 20)
+head(pred2.valid$x, 20)
+```
+Explanation:
+Above is the list of the top 20 records because the full list is very long. What we are looking at is the posterior probability of being Non-Spam (0) or Spam (1). #5 has the probability of being Non-Spam (0.6323) higher than Spam (0.3676). Therefore, it is classified as Non-Spam etc...
+
+Class is the predicted classification. Posterior is the probability of belonging to a certain class. X is the linear discriminant value.
+
+#Question 6: How many linear discriminants are in the model? Why?
+
+Explanation: There is only one linear discriminant since there are only two groups that we want classified: Non-Spam and Spam. Number of LDA = total of classification group - 1
+
+#Question 7: Generate LDA plot using the training and validation data. What information is presented in these plots? How are they different?
+
+```{r}
+#Training plot
+plot(lda)
+
+#Validation plot
+lda.valid <-lda(`Spam/Non-Spam`~., data = pred.valid)
+plot(lda.valid)
+```
+Explanation: For these graphs, we want most of our "Non-Spam" values to the left of 0 and most of our "Spam" to the right of 0, which means that our model is pretty accurate. Looking at the graphs, we can see that our model does a better job predicting Non-Spam than Spam.
+
+#Question 8: Generate the relevant confusion matrix. What are the sensitivity and specificity?
+
+```{r}
+acc1 <- table(pred2.valid$class, pred.valid$'Spam/Non-Spam')
+confusionMatrix(acc1,positive = '1')
+```
+Explanation: From the result above, the sensitivity is 0.6864 and specificity is 0.9488. Sensitivity or true positive of 0.6864 means our model classifies 68.64% of class of interest (1) correctly as Spam. Specificity or true negative of 0.9488 means our model classifies 94.88% of class of non-interest (0) correctly as Non-Spam.
+
+#Question 9: Generate lift and decile charts for the validation dataset and evaluate the effectiveness of the model in identifying spams.
+
+```{r}
+#Plot the Lift Chart
+gain.data <- gains(as.numeric(pred.valid$`Spam/Non-Spam`),pred2.valid$x[,1])
+plot(c(0,gain.data$cume.pct.of.total*sum(as.numeric(pred.valid$`Spam/Non-Spam`)))
+     ~c(0,gain.data$cume.obs),
+     xlab = 'Number of Cases', ylab = 'Cumulative',
+     main = "Lift Chart", col = "blue1",type = "l")
+lines(c(0,sum(as.numeric(pred.valid$`Spam/Non-Spam`)))~c(0,dim(email.valid.norm)[1]), lty = 5)
+
+#Plot the Decile Lift Chart
+heights.data <- gain.data$mean.resp/mean(as.numeric(pred.valid$`Spam/Non-Spam`))
+barplot(heights.data, names.arg = gain.data$depth, ylim = c(0,2.5), col = "blue1",
+        xlab = "Percentile", ylab = "Mean Response", main = "Decile Chart")
+```
+Explanation:
+We are getting very good lift in the lift chart. Within the first 400 records, our model will predict about 320 correctly compared to about 140 if we use the naive model.
+
+we are also getting a staircase shape for our decile chart (which is good). If we use the top 20% of the records, we will predict 2.4 times as better as random.
+
+#Question 10: Does accuracy of model changes if you use a probability threshold of 0.2. Explain your answer.
+
+```{r}
+confusionMatrix(as.factor(ifelse(pred2.valid$x>0.2, 1, 0)), pred2.valid$class, positive = '1')
+```
+Explanation:
+Our model accuracy increases from 0.8478 to 0.9685 if we use the probability threshold of 0.2. Our model now correctly predicts 100% of interest class (Spam) and 95.52% of non-interest class (Non-Spam).
+
+
+
+
+
+
+
+
