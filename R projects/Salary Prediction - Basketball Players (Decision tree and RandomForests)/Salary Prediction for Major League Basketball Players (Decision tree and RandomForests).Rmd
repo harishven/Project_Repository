@@ -1,0 +1,195 @@
+---
+title: "Salary Prediction for Major League Basketball Players (Decision tree and RandomForests)"
+author: "Harish Venkatesh"
+date: "4/14/2020"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r}
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(caret, ggplot2, rpart, rpart.plot, leaps, ISLR, gridExtra, gbm, randomForest)
+```
+
+###Question 1: Remove the observations with unknown salary information. How many observations were removed in this process?
+
+```{r}
+data("Hitters")
+obs <- sum(is.na(Hitters$Salary))
+Hitters <- na.omit(Hitters)
+message("Number of observations removed")
+obs
+```
+
+Explanation: 59 observations with unknown salary information were removed from the dataset.
+
+\newpage
+
+###Question 2: Transform the salaries using a (natural) log transformation. Can you justify this transformation?
+
+```{r, message = FALSE, warning = FALSE}
+#Replace Salary with natural log of Salary
+#If error, empty Enviroment and start from beginning, this is due to column Salary being removed
+natural.log <- log(Hitters$Salary)
+graph1 <- ggplot(Hitters) + geom_histogram(aes(x = Salary), binwidth = 100, fill = "darksalmon") + xlab("") + ylab("") + ggtitle("Salary")
+
+Hitters$Salary <- NULL
+Hitters$LogSalary <- natural.log
+graph2 <- ggplot(Hitters) + geom_histogram(aes(x = LogSalary), binwitdh = 1, fill = "darksalmon") + xlab("") + ylab("") + ggtitle("Natural Log of Salary")
+
+#Histograms
+grid.arrange(graph1, graph2, ncol=2)
+```
+
+Explanation: By performing a natural log transformation, we normalize the data. As we can see, Salary graph is clearly left skewed, while Log Salary graph follows more of a normal distribution.
+
+\newpage
+
+###Question 3: Create a scatterplot with Hits on the y-axis and Years on the x-axis using all the observations. Color code the observations using the log Salary variable. What patterns do you notice on this chart, if any?
+
+```{r}
+ggplot(Hitters, aes(x = Years, y = Hits, color = Hitters$LogSalary)) + 
+  geom_point() + scale_color_gradient (low = "steelblue2", high = "tomato1") +
+  theme(legend.title = element_blank())
+```
+
+Explanation: From our graph, we can see that the more years in the major leagues and hits in 1986 a player has, the higher his salary is.
+
+\newpage
+
+###Question 4: Run a linear regression model of Log Salary on all the predictors using the entire dataset. Use regsubsets() function to perform best subset selection from the regression model. Identify the best model using BIC. Which predictor variables are included in this (best) model?
+
+```{r}
+#Linear regression
+lm <- lm(LogSalary ~., data = Hitters)
+summary(lm)
+
+#Subset selection
+search <- regsubsets(LogSalary ~ ., data = Hitters, nbest = 1, nvmax = dim(Hitters)[2],
+                     method = "exhaustive")
+sum <- summary(search)
+
+message("BIC for different models:")
+sum$bic
+message("Model with lowest bic:")
+which.min(sum$bic)
+sum$which[(which.min(sum$bic)),]
+```
+
+Explanation: Running exhaustive subset selection and using the lowest BIC measure, the best model includes three predictor variables: Hits, Walks and Years.
+
+\newpage
+
+###Question 5: Now create a training data set consisting of 80 percent of the observations, and a test data set consisting of the remaining observations.
+
+```{r}
+set.seed(42)
+train.index <- sample(c(nrow(Hitters)),round(0.8*nrow(Hitters)))
+train.df <- Hitters[train.index,]
+valid.df <- Hitters[-train.index,]
+```
+
+Explanation: Training dataset consists of 210 observations and test data set consists of 53 variables.
+
+###Question 6: Generate a regression tree of log Salary using only Years and Hits variables from the training data set. Which players are likely to receive highest salaries according to this model? Write down the rule and elaborate on it.
+
+```{r}
+tree.yh <- rpart(LogSalary ~Years + Hits, data = train.df)
+rpart.plot(tree.yh, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+rpart.rules(tree.yh, cover = TRUE)
+```
+
+Explanation: According to the rules of our decision tree model, the player most likely to receive the highest salary (6.7) will have 5 or more years experience in the major leagues and has 104 or more hits in 1986.
+
+\newpage
+
+###Question 7: Now create a regression tree using all the variables in the training data set. Perform boosting on the training set with 1,000 trees for a range of values of the shrinkage parameter λ. Produce a plot with different shrinkage values on the x-axis and the corresponding training set MSE on the y-axis.
+
+```{r}
+#Regression tree using all variables in training data set
+tree.all <- rpart(LogSalary ~., data = train.df)
+rpart.plot(tree.all, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+
+#Boosting
+set.seed(42)
+lambda <- 10^seq(-10, -0.2, by = 0.1)
+t.error <- rep(NA, length(lambda))
+v.error <- rep(NA, length(lambda))
+
+for (i in 1:length(lambda)) {
+  boost <- gbm(LogSalary ~., data = train.df, distribution = "gaussian", n.trees = 1000, shrinkage = lambda[i])
+  pred.train <- predict(boost, train.df, n.trees = 1000)
+  t.error[i] <- mean((train.df$LogSalary - pred.train)^2)
+  pred.valid <- predict(boost, valid.df, n.trees = 1000)
+  v.error[i] <- mean((valid.df$LogSalary - pred.valid)^2)
+}
+
+plot(lambda, t.error, col = "blue1", pch = 19, type = "b", xlab = "Shrinkage Values", ylab = "Training MSE")
+```
+
+\newpage
+
+###Question 8: Produce a plot with different shrinkage values on the x-axis and the corresponding test set MSE on the y-axis.
+
+```{r}
+plot(lambda, v.error, col = "tomato2", pch = 19, type = "b", xlab = "Shrinkage Values", ylab = "Test MSE")
+```
+
+\newpage
+
+###Question 9: Which variables appear to be the most important predictors in the boosted model?
+
+```{r}
+set.seed(42)
+low.mse <- lambda[which.min(v.error)]
+message("the lowest MSE in our boosted model is:")
+min(v.error)
+
+mip <- gbm(LogSalary ~., data = train.df, distribution = "gaussian", n.trees = 1000, shrinkage = low.mse)
+summary(mip)
+```
+
+Explanation: The most important predictors in the boosted model are CAtBat (Career At Bats), CHits (Career Hits), CRBI (Career Runs Batted In).
+
+###Question 10: Now apply bagging to the training set. What is the test set MSE for this approach?
+
+```{r}
+set.seed(42)
+bag <- randomForest(LogSalary ~., data = train.df, ntree = 1000, mtry = ncol(train.df) - 1)
+pred.bag <- predict(bag, newdata = valid.df)
+message("Test set MSE")
+mean((pred.bag - valid.df$LogSalary)^2)
+```
+
+Explanation: the test set MSE if we use this approach is 0.2442542. Bagging will give us a lower MSE than boosting.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
